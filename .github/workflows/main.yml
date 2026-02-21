@@ -1,0 +1,89 @@
+name: Maven TestNG (Selenium - Headless Chrome)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run UI Tests (Ubuntu + Headless Chrome)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    env:
+      MAVEN_OPTS: -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.count=3
+      # Set DISPLAY for xvfb
+      DISPLAY: :99
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # Install Google Chrome (stable)
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg2
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo tee /usr/share/keyrings/google-linux-signing-keyring.gpg >/dev/null
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-linux-signing-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+          google-chrome --version
+
+      # (Optional) If you use WebDriverManager, this is enough—no need to manage chromedriver path.
+      # If you DO NOT use WebDriverManager, uncomment the next step to install chromedriver matching Chrome.
+      # - name: Install ChromeDriver (matching Chrome)
+      #   uses: nanasess/setup-chromedriver@v2
+      #   with:
+      #     chromedriver-version: 'latest' # or pin a version
+      #   # Export chromedriver path
+      # - name: Show ChromeDriver
+      #   run: |
+      #     chromedriver --version
+      #     which chromedriver
+
+      # Start X virtual framebuffer for running Chrome in headless mode with a display
+      - name: Start xvfb
+        run: |
+          sudo apt-get install -y xvfb
+          Xvfb :99 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+
+      # Build and run tests
+      - name: Build & Test (Maven)
+        run: |
+          mvn -B -U -DskipTests=false clean test \
+            -Dsurefire.printSummary=true \
+            -Dsurefire.useFile=true
+
+      # Always upload surefire reports for debugging
+      - name: Upload Surefire Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: |
+            **/target/surefire-reports/**
+            **/target/site/surefire-report.html
+          if-no-files-found: warn
+
+      # (Optional) Upload screenshots/logs if you save them during failures
+      # - name: Upload Test Artifacts
+      #   if: failure()
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ui-artifacts
+      #     path: |
+      #       **/target/screenshots/**
+      #       **/logs/**
